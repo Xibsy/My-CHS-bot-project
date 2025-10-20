@@ -1,0 +1,3 @@
+TOKEN = 'Your TOKEN'
+ADMIN_CHAT_ID = 'Your chat'
+

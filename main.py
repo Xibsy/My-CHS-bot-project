@@ -6,53 +6,95 @@ from os import getenv
 from aiogram import Bot, Dispatcher, html
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.types import Message
-from bot import TOKEN
+from bot import TOKEN, ADMIN_CHAT_ID  # Consider using environment variables instead
 
-# Bot token can be obtained via https://t.me/BotFather
 
-# All handlers should be attached to the Router (or Dispatcher)
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout
+)
+
+bot = Bot(
+        token=TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
 dp = Dispatcher()
 
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
+    exit_ids = []
+    with open('chat_ids.txt', 'r') as ids:
+        for id in ids.readline().split():
+            exit_ids.append(id)
+
+    with open('chat_ids.txt', 'a') as ids:
+        new_id = str(message.chat.id)
+        if new_id not in exit_ids:
+            ids.write(f'{str(new_id)} ')
+    user_name = html.bold(message.from_user.full_name)
+    await message.answer(
+        f"Hello, {user_name}!\n\n"
+        f"Welcome to the bot! Use /help to see available commands."
+    )
+
+
+@dp.message(Command('br'))
+async def broadcast_text(message: Message) -> None:
+    if str(message.chat.id) == ADMIN_CHAT_ID:
+        with open('chat_ids.txt', 'r') as ids:
+            users_chats = [id for id in ids.readline().split() if id != ' ']
+            for id in users_chats:
+                if id == ADMIN_CHAT_ID:
+                    continue
+                await bot.send_message(id, message.text.strip('/br '))
+    await message.answer(f'Вы отправили всем сообщение {html.bold(message.text.strip('/br '))}')
+
+
+@dp.message(Command("help"))
+async def command_help_handler(message: Message) -> None:
     """
-    This handler receives messages with `/start` command
+    Handler for /help command
     """
-    # Most event objects have aliases for API methods that can be called in events' context
-    # For example if you want to answer to incoming message you can use `message.answer(...)` alias
-    # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
-    # method automatically or call API method directly via
-    # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
-    await message.answer(f"Hello, {html.bold(message.from_user.full_name)}!")
+    help_text = """
+Available commands:
+/start - Start the bot
+/help - Show this help message
+
+Just send me any message and I'll echo it back!
+    """
+    await message.answer(help_text)
 
 
 @dp.message()
-async def echo_handler(message: Message) -> None:
-    """
-    Handler will forward receive a message back to the sender
-
-    By default, message handler will handle all message types (like a text, photo, sticker etc.)
-    """
-    try:
-        # Send a copy of the received message
-        await message.send_copy(chat_id=message.chat.id)
-    except TypeError:
-        # But not all the types is supported to be copied so need to handle it
-        await message.answer("Nice try!")
+async def echo(message: Message) -> None:
+    if message.chat.id != ADMIN_CHAT_ID:
+        await bot.send_message(ADMIN_CHAT_ID, f'{message.from_user.full_name}: {message.text}')
 
 
 async def main() -> None:
-    # Initialize Bot instance with default bot properties which will be passed to all API calls
-    bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    logger = logging.getLogger(__name__)
+    logger.info("Starting bot...")
 
-    # And the run events dispatching
-    await dp.start_polling(bot)
+    try:
+        # Start polling
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Error occurred: {e}")
+    finally:
+        await bot.session.close()
+        logger.info("Bot stopped")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nBot stopped by user")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
